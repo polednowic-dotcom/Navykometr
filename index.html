@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f5">
+<title>Návykometr</title>
+<style>
+:root{color-scheme:light;--bg:#f7f7f5;--ink:#20211f;--done:#242622;--missed:#f7f7f5;--border:#d5d6d0;--future:#e7e8e3;--today:#4779df}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink)}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:max(14px,env(safe-area-inset-top)) 12px max(18px,env(safe-area-inset-bottom))}
+main{width:min(100%,520px);margin:0 auto}header{display:flex;align-items:center;justify-content:space-between;margin:0 1px 12px}
+h1{font-size:17px;font-weight:600;margin:0}#year{font-size:14px;color:#62645e;font-variant-numeric:tabular-nums}
+#grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:clamp(3px,1.15vw,6px);width:100%}
+.day{aspect-ratio:1;padding:0;border:1px solid var(--border);border-radius:clamp(3px,1vw,6px);background:var(--missed);display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.day.done{background:var(--done);border-color:var(--done)}.day.future{background:var(--future);border-color:var(--future);pointer-events:none}
+.day.today{outline:2px solid var(--today);outline-offset:1px}
+.day.missed:after{content:"";width:36%;height:36%;border:1.7px solid #62645e;border-radius:2px}
+.day.done:after{content:"";width:37%;height:21%;border-left:2px solid white;border-bottom:2px solid white;transform:translateY(-12%) rotate(-45deg)}
+.day.empty{visibility:hidden}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.actions{display:flex;justify-content:flex-end;margin-top:12px}button.utility{border:0;background:transparent;color:#62645e;font:inherit;font-size:12px;padding:8px 2px;text-decoration:underline;text-underline-offset:3px}
+#notice{min-height:1.2em;color:#62645e;font-size:12px;margin-top:2px}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#111210;--ink:#f1f2ec;--done:#e9eae4;--missed:#111210;--border:#4b4d46;--future:#272923;--today:#7da2ff}#year,#notice,button.utility{color:#a9aba3}.day.done:after{border-color:#171815}.day.missed:after{border-color:#a9aba3}}
+</style>
+</head>
+<body><main>
+<header><h1>Návykometr</h1><div id="year"></div></header>
+<div id="grid" role="group" aria-label="Roční návykometr"></div>
+<div class="actions"><button class="utility" id="backup">Záloha dat</button><button class="utility" id="restore" style="margin-left:14px">Obnovit zálohu</button><input class="sr-only" id="file" type="file" accept="application/json"></div>
+<div id="notice" role="status" aria-live="polite"></div>
+</main>
+<script>
+(()=> {
+const grid=document.getElementById('grid'), yearLabel=document.getElementById('year'), notice=document.getElementById('notice'), key='navykometr-missed-dates-v1';
+function load(){try{const a=JSON.parse(localStorage.getItem(key)||'[]');return new Set(Array.isArray(a)?a.filter(x=>typeof x==='string'):[])}catch(e){return new Set()}}
+let missed=load();
+const dateKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const localDate=(y,m,d)=>new Date(y,m,d,12,0,0,0);
+function save(){try{localStorage.setItem(key,JSON.stringify([...missed]));notice.textContent=''}catch(e){notice.textContent='Uložení se nezdařilo. Exportuj zálohu.'}}
+function render(){
+const now=new Date(), y=now.getFullYear(), today=dateKey(now);yearLabel.textContent=y;grid.replaceChildren();
+const jan=localDate(y,0,1), leading=(jan.getDay()+6)%7, count=(localDate(y+1,0,1)-jan)/86400000, total=Math.ceil((leading+count)/7)*7;
+for(let i=0;i<total;i++){
+const n=i-leading+1, b=document.createElement('button');b.type='button';b.className='day';b.tabIndex=-1;
+if(n<1||n>count){b.classList.add('empty');b.disabled=true;b.setAttribute('aria-hidden','true');grid.appendChild(b);continue}
+const d=localDate(y,0,n), k=dateKey(d), future=k>today, isMissed=missed.has(k);
+b.setAttribute('aria-label',`${k}: ${future?'budoucí den':isMissed?'nesplněno':'splněno'}`);
+b.title=`${k} — ${future?'budoucí den':isMissed?'nesplněno':'splněno'}`;
+if(future){b.classList.add('future');b.disabled=true}else if(isMissed)b.classList.add('missed');else b.classList.add('done');
+if(k===today)b.classList.add('today');
+b.addEventListener('click',()=>{if(missed.has(k))missed.delete(k);else missed.add(k);save();render()});grid.appendChild(b)
+}}
+document.getElementById('backup').addEventListener('click',()=>{
+const blob=new Blob([JSON.stringify({format:'navykometr-v1',missed:[...missed]},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+a.href=url;a.download='navykometr-zaloha.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice.textContent='Záloha byla připravena.'
+});
+document.getElementById('restore').addEventListener('click',()=>document.getElementById('file').click());
+document.getElementById('file').addEventListener('change',async e=>{
+const f=e.target.files&&e.target.files[0];if(!f)return;
+try{const d=JSON.parse(await f.text());if(d.format!=='navykometr-v1'||!Array.isArray(d.missed)||!d.missed.every(x=>typeof x==='string'))throw Error();
+missed=new Set(d.missed);save();render();notice.textContent='Záloha byla obnovena.'
+}catch(_){notice.textContent='Soubor není platná záloha návykometru.'}e.target.value=''
+});
+render();document.addEventListener('visibilitychange',()=>{if(!document.hidden)render()});
+})();
+</script></body></html>
